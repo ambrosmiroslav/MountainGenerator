@@ -252,7 +252,13 @@ legend {
   grid-template-columns: 1fr auto;
 }
 
-.field:has(output) input {
+.field:has(output) > span:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field:has(output) input[type="range"] {
   grid-column: 1 / -1;
 }
 
@@ -494,6 +500,14 @@ kbd {
   transform: skewY(-28deg);
 }
 
+.sun-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f1cc83;
+  box-shadow: 0 0 8px #f1cc8370;
+}
+
 .viewer-controls-hint {
   position: absolute;
   bottom: 21px;
@@ -578,6 +592,8 @@ kbd {
   .viewer-stats {
     right: 15px;
     bottom: calc(min(47%, 370px) + 25px);
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .viewer-controls-hint {

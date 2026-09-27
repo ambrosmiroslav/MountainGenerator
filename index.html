@@ -62,21 +62,21 @@
               <div class="field-grid">
                 <label class="field">
                   <span>Width <small>cells</small></span>
-                  <input id="width" name="width" type="number" min="1" max="12" value="4" required />
+                  <input id="width" name="width" type="number" min="1" max="24" value="4" required />
                 </label>
                 <label class="field">
                   <span>Depth <small>cells</small></span>
-                  <input id="depth" name="depth" type="number" min="1" max="10" value="3" required />
+                  <input id="depth" name="depth" type="number" min="1" max="20" value="3" required />
                 </label>
               </div>
-              <p class="field-hint">The base grid starts with one more point than cells in each direction.</p>
+              <p class="field-hint">The base grid starts with one more point than cells in each direction. Generated grids are limited to 250,000 points.</p>
             </fieldset>
 
             <fieldset>
               <legend>Surface detail</legend>
               <label class="field">
-                <span>Spread <output id="spread-output" for="spread">1.0</output></span>
-                <input id="spread" name="spread" type="range" min="0" max="3" step="0.1" value="1" />
+                <span>Spread <output id="spread-output" for="spread">1.00</output></span>
+                <input id="spread" name="spread" type="range" min="0" max="1.2" step="0.05" value="1" />
               </label>
               <label class="field field-spaced">
                 <span>Refinement passes</span>
@@ -86,6 +86,10 @@
                   <option value="2">2 passes</option>
                   <option value="3">3 passes</option>
                   <option value="4" selected>4 passes</option>
+                  <option value="5">5 passes</option>
+                  <option value="6">6 passes</option>
+                  <option value="7">7 passes</option>
+                  <option value="8">8 passes</option>
                 </select>
               </label>
             </fieldset>
@@ -114,6 +118,24 @@
                 <span class="toggle" aria-hidden="true"></span>
               </label>
             </fieldset>
+            <fieldset>
+              <legend>Sun light</legend>
+              <div class="field-grid">
+                <label class="field">
+                  <span>Declination <output id="sun-declination-output" for="sun-declination">45°</output></span>
+                  <input id="sun-declination" name="sunDeclination" type="range" min="-90" max="90" step="1" value="45" />
+                </label>
+                <label class="field">
+                  <span>Right ascension <output id="sun-right-ascension-output" for="sun-right-ascension">125°</output></span>
+                  <input id="sun-right-ascension" name="sunRightAscension" type="range" min="0" max="360" step="1" value="125" />
+                </label>
+              </div>
+              <p class="field-hint">Declination sets height above the horizon; right ascension orbits around the terrain.</p>
+              <label class="field field-spaced">
+                <span>Intensity <output id="sun-intensity-output" for="sun-intensity">2.5</output></span>
+                <input id="sun-intensity" name="sunIntensity" type="range" min="0" max="5" step="0.1" value="2.5" />
+              </label>
+            </fieldset>
             <p class="form-message" id="form-message" role="alert" aria-live="polite"></p>
           </form>
 
@@ -132,6 +154,7 @@
           <div class="viewer-overlay viewer-stats" aria-live="polite">
             <span><i class="stat-swatch" aria-hidden="true"></i><span id="point-count">— points</span></span>
             <span><i class="stat-line" aria-hidden="true"></i><span>Triangular mesh</span></span>
+            <span><i class="sun-swatch" aria-hidden="true"></i><span id="sun-status">Sun 45° / 125° · 2.5</span></span>
           </div>
           <div class="viewer-controls-hint" aria-hidden="true">
             <span>Left / right drag to orbit</span><span>Scroll to zoom</span>

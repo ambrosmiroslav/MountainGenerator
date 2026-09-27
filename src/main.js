@@ -8,7 +8,14 @@ const DEFAULTS = Object.freeze({
   iterations: 4,
   seed: 18427,
   colorMode: "elevation",
+  sunDeclination: 45,
+  sunRightAscension: 125,
+  sunIntensity: 2.5,
 });
+const MAX_WIDTH_CELLS = 24;
+const MAX_DEPTH_CELLS = 20;
+const MAX_REFINEMENT_PASSES = 8;
+const MAX_TERRAIN_POINTS = 250_000;
 
 const COLORS = {
   low: new THREE.Color("#36493f"),
@@ -30,8 +37,15 @@ const elements = {
   seed: document.querySelector("#seed"),
   colorMode: document.querySelector("#color-mode"),
   wireframe: document.querySelector("#wireframe"),
+  sunDeclination: document.querySelector("#sun-declination"),
+  sunDeclinationOutput: document.querySelector("#sun-declination-output"),
+  sunRightAscension: document.querySelector("#sun-right-ascension"),
+  sunRightAscensionOutput: document.querySelector("#sun-right-ascension-output"),
+  sunIntensity: document.querySelector("#sun-intensity"),
+  sunIntensityOutput: document.querySelector("#sun-intensity-output"),
   message: document.querySelector("#form-message"),
   pointCount: document.querySelector("#point-count"),
+  sunStatus: document.querySelector("#sun-status"),
 };
 
 const scene = new THREE.Scene();
@@ -57,7 +71,6 @@ controls.target.set(0, 0, 0);
 
 scene.add(new THREE.HemisphereLight("#dcebd9", "#26332c", 2.1));
 const keyLight = new THREE.DirectionalLight("#fff1d7", 2.5);
-keyLight.position.set(-5, 10, 7);
 scene.add(keyLight);
 const rimLight = new THREE.DirectionalLight("#91bbaf", 1.25);
 rimLight.position.set(7, 5, -6);
@@ -78,6 +91,11 @@ const terrainMaterial = new THREE.MeshStandardMaterial({
 
 let terrainMesh = null;
 let currentDimensions = { width: DEFAULTS.width, depth: DEFAULTS.depth };
+let currentSunSettings = {
+  sunDeclination: DEFAULTS.sunDeclination,
+  sunRightAscension: DEFAULTS.sunRightAscension,
+  sunIntensity: DEFAULTS.sunIntensity,
+};
 let animationFrame = 0;
 
 function makeRandom(seed) {
@@ -89,6 +107,22 @@ function makeRandom(seed) {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function getSunPosition(declination, rightAscension) {
+  const elevation = THREE.MathUtils.degToRad(declination);
+  const azimuth = THREE.MathUtils.degToRad(rightAscension);
+  const horizontalDistance = Math.cos(elevation) * 20;
+  return [
+    horizontalDistance * Math.cos(azimuth),
+    Math.sin(elevation) * 20,
+    horizontalDistance * Math.sin(azimuth),
+  ];
+}
+
+function updateSunLight(light, settings) {
+  light.position.set(...getSunPosition(settings.sunDeclination, settings.sunRightAscension));
+  light.intensity = settings.sunIntensity;
 }
 
 function chooseSplitIntervals(intervalCount, splitCount, passIndex) {
@@ -158,7 +192,16 @@ function refineHeightMap(grid, xAxis, yAxis, splitX, splitY, random, offsetLimit
   };
 }
 
+function getTerrainPointCount(width, depth, iterations) {
+  return (width * (2 ** iterations) + 1) * (depth * (2 ** iterations) + 1);
+}
+
 function createHeightMap(settings) {
+  const pointCount = getTerrainPointCount(settings.width, settings.depth, settings.iterations);
+  if (pointCount > MAX_TERRAIN_POINTS) {
+    throw new RangeError(`Terrain would contain ${pointCount.toLocaleString()} points; the limit is ${MAX_TERRAIN_POINTS.toLocaleString()}. Reduce dimensions or refinement passes.`);
+  }
+
   const random = makeRandom(settings.seed);
   let xAxis = Array.from({ length: settings.width + 1 }, (_, index) => index - settings.width / 2);
   let yAxis = Array.from({ length: settings.depth + 1 }, (_, index) => index - settings.depth / 2);
@@ -253,14 +296,31 @@ function readSettings() {
   const seed = Number(elements.seed.value);
   const iterations = Number(elements.iterations.value);
   const spread = Number(elements.spread.value);
+  const sunDeclination = Number(elements.sunDeclination.value);
+  const sunRightAscension = Number(elements.sunRightAscension.value);
+  const sunIntensity = Number(elements.sunIntensity.value);
 
   const invalid = [
-    [elements.width, Number.isInteger(width) && width >= 1 && width <= 12, "Width must be between 1 and 12 cells."],
-    [elements.depth, Number.isInteger(depth) && depth >= 1 && depth <= 10, "Depth must be between 1 and 10 cells."],
+    [elements.width, Number.isInteger(width) && width >= 1 && width <= MAX_WIDTH_CELLS, `Width must be between 1 and ${MAX_WIDTH_CELLS} cells.`],
+    [elements.depth, Number.isInteger(depth) && depth >= 1 && depth <= MAX_DEPTH_CELLS, `Depth must be between 1 and ${MAX_DEPTH_CELLS} cells.`],
+    [elements.iterations, Number.isInteger(iterations) && iterations >= 0 && iterations <= MAX_REFINEMENT_PASSES, `Refinement passes must be between 0 and ${MAX_REFINEMENT_PASSES}.`],
     [elements.seed, Number.isInteger(seed) && seed >= 0 && seed <= 4294967295, "Seed must be an integer from 0 to 4294967295."],
+    [elements.sunDeclination, elements.sunDeclination.value !== "" && Number.isInteger(sunDeclination) && sunDeclination >= -90 && sunDeclination <= 90, "Declination must be a whole number from -90 to 90 degrees."],
+    [elements.sunRightAscension, elements.sunRightAscension.value !== "" && Number.isInteger(sunRightAscension) && sunRightAscension >= 0 && sunRightAscension <= 360, "Right ascension must be a whole number from 0 to 360 degrees."],
+    [elements.sunIntensity, Number.isFinite(sunIntensity) && sunIntensity >= 0 && sunIntensity <= 5, "Sun intensity must be between 0 and 5."],
   ].find(([, isValid]) => !isValid);
 
-  for (const input of [elements.width, elements.depth, elements.seed]) {
+  const pointCount = getTerrainPointCount(width, depth, iterations);
+  const overPointBudget = !invalid && pointCount > MAX_TERRAIN_POINTS;
+  for (const input of [
+    elements.width,
+    elements.depth,
+    elements.iterations,
+    elements.seed,
+    elements.sunDeclination,
+    elements.sunRightAscension,
+    elements.sunIntensity,
+  ]) {
     input.removeAttribute("aria-invalid");
   }
   elements.message.textContent = "";
@@ -271,6 +331,12 @@ function readSettings() {
     input.focus();
     return null;
   }
+  if (overPointBudget) {
+    elements.iterations.setAttribute("aria-invalid", "true");
+    elements.message.textContent = `These settings would generate ${pointCount.toLocaleString()} points; the limit is ${MAX_TERRAIN_POINTS.toLocaleString()}. Reduce dimensions or refinement passes.`;
+    elements.iterations.focus();
+    return null;
+  }
 
   return {
     width,
@@ -279,7 +345,46 @@ function readSettings() {
     iterations,
     spread,
     colorMode: elements.colorMode.value,
+    sunDeclination,
+    sunRightAscension,
+    sunIntensity,
   };
+}
+
+function syncSunControls() {
+  const inputs = [
+    [elements.sunDeclination, "sunDeclination", -90, 90, "Declination must be a whole number from -90 to 90 degrees."],
+    [elements.sunRightAscension, "sunRightAscension", 0, 360, "Right ascension must be a whole number from 0 to 360 degrees."],
+    [elements.sunIntensity, "sunIntensity", 0, 5, "Sun intensity must be between 0 and 5."],
+  ];
+  let firstError = null;
+
+  for (const [input, setting, minimum, maximum, message] of inputs) {
+    const value = Number(input.value);
+    const isValid = Number.isFinite(value)
+      && value >= minimum
+      && value <= maximum
+      && (setting === "sunIntensity" || Number.isInteger(value));
+    if (isValid) {
+      input.removeAttribute("aria-invalid");
+      currentSunSettings[setting] = value;
+    } else {
+      input.setAttribute("aria-invalid", "true");
+      firstError ??= message;
+    }
+  }
+
+  if (firstError) {
+    elements.message.textContent = firstError;
+  } else if (!elements.form.querySelector('[aria-invalid="true"]')) {
+    elements.message.textContent = "";
+  }
+
+  updateSunLight(keyLight, currentSunSettings);
+  elements.sunDeclinationOutput.value = `${currentSunSettings.sunDeclination}°`;
+  elements.sunRightAscensionOutput.value = `${currentSunSettings.sunRightAscension}°`;
+  elements.sunIntensityOutput.value = currentSunSettings.sunIntensity.toFixed(1);
+  elements.sunStatus.textContent = `Sun ${currentSunSettings.sunDeclination}° / ${currentSunSettings.sunRightAscension}° · ${currentSunSettings.sunIntensity.toFixed(1)}`;
 }
 
 function renderTerrain(settings) {
@@ -339,7 +444,7 @@ document.querySelector("#randomize-seed").addEventListener("click", () => {
 });
 document.querySelector("#reset-view").addEventListener("click", resetView);
 elements.spread.addEventListener("input", () => {
-  elements.spreadOutput.value = Number(elements.spread.value).toFixed(1);
+  elements.spreadOutput.value = Number(elements.spread.value).toFixed(2);
 });
 elements.wireframe.addEventListener("change", () => {
   terrainMaterial.wireframe = elements.wireframe.checked;
@@ -350,6 +455,9 @@ elements.width.addEventListener("change", regenerate);
 elements.depth.addEventListener("change", regenerate);
 elements.spread.addEventListener("change", regenerate);
 elements.seed.addEventListener("change", regenerate);
+for (const input of [elements.sunDeclination, elements.sunRightAscension, elements.sunIntensity]) {
+  input.addEventListener("input", syncSunControls);
+}
 
 const resizeObserver = new ResizeObserver(resizeRenderer);
 resizeObserver.observe(elements.canvas);
@@ -362,7 +470,8 @@ window.addEventListener("beforeunload", () => {
   renderer.dispose();
 });
 
-elements.spreadOutput.value = Number(elements.spread.value).toFixed(1);
+elements.spreadOutput.value = Number(elements.spread.value).toFixed(2);
+syncSunControls();
 resizeRenderer();
 renderTerrain({ ...DEFAULTS });
 resetView();
