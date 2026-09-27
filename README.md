@@ -9,7 +9,7 @@ A build-free, browser-based procedural terrain playground. Serve this directory 
 - Use **Randomize seed** for a new deterministic terrain, **Reset view** to restore the camera, and **Wireframe** to inspect the triangles.
 - Choose monochrome, elevation, slope, or combined vertex coloring. Drag to orbit and scroll to zoom.
 
-The default 4 × 3-cell grid starts with 5 × 4 points. Its first three refinement passes split every interval; the fourth inserts points into half of the width intervals and one-third of the depth intervals. This preserves all existing samples while producing the requested 49 × 33-point grid. New edge samples use the average of their endpoints, and new cell-center samples use the average of the four corners. Each receives a seeded, bounded perturbation that decreases with every pass.
+The default 4 × 3-cell grid starts with 5 × 4 points. Every refinement pass splits every interval in both axes, producing 65 × 49 points after four passes. Existing samples are preserved; new edge samples use the average of their endpoints, and new cell-center samples use the average of the four corners. Each receives a seeded, bounded perturbation that decreases with every pass. Each resulting grid cell is covered by two indexed triangles.
 
 ## Limits and compatibility
 

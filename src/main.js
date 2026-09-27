@@ -165,19 +165,12 @@ function createHeightMap(settings) {
   let grid = yAxis.map(() => xAxis.map(() => (random() * 2 - 1) * settings.spread * 0.45));
 
   for (let pass = 0; pass < settings.iterations; pass += 1) {
-    const isFinalDefaultPass = settings.iterations === 4 && pass === 3;
-    const splitX = isFinalDefaultPass
-      ? Math.floor((xAxis.length - 1) / 2)
-      : xAxis.length - 1;
-    const splitY = isFinalDefaultPass
-      ? Math.floor((yAxis.length - 1) / 3)
-      : yAxis.length - 1;
     const refined = refineHeightMap(
       grid,
       xAxis,
       yAxis,
-      splitX,
-      splitY,
+      xAxis.length - 1,
+      yAxis.length - 1,
       random,
       settings.spread * 0.55 / (2 ** pass),
     );
