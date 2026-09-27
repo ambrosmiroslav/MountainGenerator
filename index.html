@@ -137,7 +137,7 @@
               </label>
             </fieldset>
             <fieldset>
-              <legend>Export height map</legend>
+              <legend>Height map import / export</legend>
               <label class="field" for="export-format">
                 <span>File format</span>
                 <select id="export-format" name="exportFormat">
@@ -150,6 +150,12 @@
                 Download height map
               </button>
               <p class="export-status" id="export-status" role="status" aria-live="polite"></p>
+              <label class="button button-secondary export-button import-button" for="import-png">
+                Import PNG height map
+              </label>
+              <input class="visually-hidden" id="import-png" name="importPng" type="file" accept="image/png,.png" aria-describedby="import-hint import-status" />
+              <p class="field-hint" id="import-hint">Local only; no upload. Black maps to 0, white maps to Spread. Transparency composites against black. Limit: 32 MB and 250,000 pixels.</p>
+              <p class="export-status" id="import-status" role="status" aria-live="polite"></p>
             </fieldset>
             <p class="form-message" id="form-message" role="alert" aria-live="polite"></p>
           </form>
@@ -170,6 +176,7 @@
             <span><i class="stat-swatch" aria-hidden="true"></i><span id="point-count">— points</span></span>
             <span><i class="stat-line" aria-hidden="true"></i><span>Triangular mesh</span></span>
             <span><i class="sun-swatch" aria-hidden="true"></i><span id="sun-status">Sun 45° / 125° · 2.5</span></span>
+            <span><span id="terrain-source">Procedural terrain</span></span>
           </div>
           <div class="viewer-controls-hint" aria-hidden="true">
             <span>Left / right drag to orbit</span><span>Scroll to zoom</span>

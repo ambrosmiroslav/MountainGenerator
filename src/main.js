@@ -16,6 +16,7 @@ const MAX_WIDTH_CELLS = 24;
 const MAX_DEPTH_CELLS = 20;
 const MAX_REFINEMENT_PASSES = 8;
 const MAX_TERRAIN_POINTS = 250_000;
+const MAX_IMPORT_PNG_BYTES = 32 * 1024 * 1024;
 
 const COLORS = {
   low: new THREE.Color("#36493f"),
@@ -47,9 +48,12 @@ const elements = {
   exportHint: document.querySelector("#export-hint"),
   exportButton: document.querySelector("#export-heightmap"),
   exportStatus: document.querySelector("#export-status"),
+  importPng: document.querySelector("#import-png"),
+  importStatus: document.querySelector("#import-status"),
   message: document.querySelector("#form-message"),
   pointCount: document.querySelector("#point-count"),
   sunStatus: document.querySelector("#sun-status"),
+  terrainSource: document.querySelector("#terrain-source"),
 };
 
 const scene = new THREE.Scene();
@@ -102,8 +106,10 @@ let currentSunSettings = {
 };
 let currentHeightMap = null;
 let currentTerrainSettings = null;
+let currentTerrainSource = { type: "procedural" };
 const activeDownloadUrls = new Map();
 let animationFrame = 0;
+let importRequestId = 0;
 
 function makeRandom(seed) {
   let state = seed >>> 0;
@@ -242,7 +248,7 @@ function getHeightRange(heightMap) {
   return { min, max };
 }
 
-function createHeightMapExport(heightMap, settings) {
+function createHeightMapExport(heightMap, settings, source) {
   const range = getHeightRange(heightMap);
   return {
     format: "mountain-generator-heightmap",
@@ -273,6 +279,7 @@ function createHeightMapExport(heightMap, settings) {
         normalization: "linear: min maps to 0, max maps to 255",
         constantHeightPixel: range.min === range.max ? 0 : null,
       },
+      source,
     },
     heights: heightMap.grid,
   };
@@ -381,7 +388,7 @@ async function exportCurrentHeightMap() {
   let blob;
   if (format === "json") {
     blob = new Blob(
-      [JSON.stringify(createHeightMapExport(currentHeightMap, currentTerrainSettings), null, 2)],
+      [JSON.stringify(createHeightMapExport(currentHeightMap, currentTerrainSettings, currentTerrainSource), null, 2)],
       { type: "application/json" },
     );
   } else if (format === "png") {
@@ -424,8 +431,7 @@ function buildGeometry(heightMap, mode) {
   const { grid, xAxis, yAxis } = heightMap;
   const rows = yAxis.length;
   const columns = xAxis.length;
-  const minHeight = Math.min(...grid.flat());
-  const maxHeight = Math.max(...grid.flat());
+  const { min: minHeight, max: maxHeight } = getHeightRange(heightMap);
   const positions = [];
   const colors = [];
   const indices = [];
@@ -470,7 +476,7 @@ function buildGeometry(heightMap, mode) {
   return geometry;
 }
 
-function readSettings() {
+function readSettings({ checkPointBudget = true } = {}) {
   const width = Number(elements.width.value);
   const depth = Number(elements.depth.value);
   const seed = Number(elements.seed.value);
@@ -491,7 +497,7 @@ function readSettings() {
   ].find(([, isValid]) => !isValid);
 
   const pointCount = getTerrainPointCount(width, depth, iterations);
-  const overPointBudget = !invalid && pointCount > MAX_TERRAIN_POINTS;
+  const overPointBudget = checkPointBudget && !invalid && pointCount > MAX_TERRAIN_POINTS;
   for (const input of [
     elements.width,
     elements.depth,
@@ -567,8 +573,7 @@ function syncSunControls() {
   elements.sunStatus.textContent = `Sun ${currentSunSettings.sunDeclination}° / ${currentSunSettings.sunRightAscension}° · ${currentSunSettings.sunIntensity.toFixed(1)}`;
 }
 
-function renderTerrain(settings) {
-  const heightMap = createHeightMap(settings);
+function renderHeightMap(heightMap, settings, source) {
   const geometry = buildGeometry(heightMap, settings.colorMode);
   const nextMesh = new THREE.Mesh(geometry, terrainMaterial);
   nextMesh.castShadow = false;
@@ -582,10 +587,122 @@ function renderTerrain(settings) {
   scene.add(terrainMesh);
   currentHeightMap = heightMap;
   currentTerrainSettings = { ...settings };
-  groundGrid.position.y = Math.min(...heightMap.grid.flat()) - 0.06;
+  currentTerrainSource = source;
+  groundGrid.position.y = getHeightRange(heightMap).min - 0.06;
   currentDimensions = { width: settings.width, depth: settings.depth };
   elements.pointCount.textContent = `${heightMap.xAxis.length} × ${heightMap.yAxis.length} points`;
+  elements.terrainSource.textContent = source.type === "procedural"
+    ? "Procedural terrain"
+    : `Imported PNG: ${source.filename}`;
   updateExportHint();
+}
+
+function renderTerrain(settings) {
+  const heightMap = createHeightMap(settings);
+  renderHeightMap(heightMap, settings, { type: "procedural" });
+}
+
+function readPngDimensions(header) {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (header.length < 24 || signature.some((byte, index) => header[index] !== byte)) {
+    throw new Error("The selected file is not a valid PNG image.");
+  }
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  const chunkLength = view.getUint32(8);
+  const isHeaderChunk = String.fromCharCode(...header.subarray(12, 16)) === "IHDR";
+  if (chunkLength !== 13 || !isHeaderChunk || header.length < 24) {
+    throw new Error("The PNG header is invalid or unsupported.");
+  }
+  const width = view.getUint32(16);
+  const height = view.getUint32(20);
+  if (width === 0 || height === 0) {
+    throw new Error("PNG width and height must be greater than zero.");
+  }
+  if (width * height > MAX_TERRAIN_POINTS) {
+    throw new Error(`This image has ${width.toLocaleString()} × ${height.toLocaleString()} pixels; imports are limited to ${MAX_TERRAIN_POINTS.toLocaleString()} points.`);
+  }
+  return { width, height };
+}
+
+function createImportedHeightMap(imageData, width, height, settings) {
+  const xAxis = width === 1
+    ? [0]
+    : Array.from({ length: width }, (_, column) => -settings.width / 2 + (column * settings.width) / (width - 1));
+  const yAxis = height === 1
+    ? [0]
+    : Array.from({ length: height }, (_, row) => -settings.depth / 2 + (row * settings.depth) / (height - 1));
+  const grid = Array.from({ length: height }, (_, row) => (
+    Array.from({ length: width }, (_, column) => {
+      const pixelOffset = (row * width + column) * 4;
+      const alpha = imageData.data[pixelOffset + 3] / 255;
+      const luminance = (
+        imageData.data[pixelOffset] * 0.2126
+        + imageData.data[pixelOffset + 1] * 0.7152
+        + imageData.data[pixelOffset + 2] * 0.0722
+      ) / (255 * (0.2126 + 0.7152 + 0.0722));
+      return Math.min(luminance * alpha, 1) * settings.spread;
+    })
+  ));
+  return { grid, xAxis, yAxis };
+}
+
+async function importPngHeightMap(file) {
+  if (!file) return;
+  const requestId = ++importRequestId;
+  elements.importStatus.setAttribute("role", "status");
+  elements.importStatus.textContent = "Reading PNG locally…";
+  elements.importPng.removeAttribute("aria-invalid");
+
+  try {
+    if (file.size > MAX_IMPORT_PNG_BYTES) {
+      throw new Error(`PNG files are limited to ${MAX_IMPORT_PNG_BYTES / (1024 * 1024)} MB.`);
+    }
+    if (file.type && file.type !== "image/png") {
+      throw new Error("Choose a PNG image.");
+    }
+    if (!file.type && !file.name.toLowerCase().endsWith(".png")) {
+      throw new Error("Choose a PNG image.");
+    }
+
+    const settings = readSettings({ checkPointBudget: false });
+    if (!settings) {
+      throw new Error("Fix the highlighted terrain settings before importing.");
+    }
+
+    const fileBytes = await file.arrayBuffer();
+    const pngDimensions = readPngDimensions(new Uint8Array(fileBytes, 0, Math.min(fileBytes.byteLength, 24)));
+    const bitmap = await createImageBitmap(file);
+    try {
+      if (bitmap.width !== pngDimensions.width || bitmap.height !== pngDimensions.height) {
+        throw new Error("Decoded PNG dimensions do not match its header.");
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        throw new Error("This browser could not create a canvas to read the PNG.");
+      }
+      context.drawImage(bitmap, 0, 0);
+      const imageData = context.getImageData(0, 0, bitmap.width, bitmap.height);
+      const heightMap = createImportedHeightMap(imageData, bitmap.width, bitmap.height, settings);
+      if (requestId !== importRequestId) return;
+
+      renderHeightMap(heightMap, settings, { type: "imported-png", filename: file.name });
+      elements.importStatus.textContent = `Imported ${file.name} (${bitmap.width} × ${bitmap.height}); black = 0, white = ${settings.spread}.`;
+      elements.exportStatus.textContent = "";
+    } finally {
+      bitmap.close();
+    }
+  } catch (error) {
+    if (requestId === importRequestId) {
+      elements.importPng.setAttribute("aria-invalid", "true");
+      elements.importStatus.setAttribute("role", "alert");
+      elements.importStatus.textContent = `Import failed: ${error.message}`;
+    }
+  } finally {
+    elements.importPng.value = "";
+  }
 }
 
 function regenerate() {
@@ -642,6 +759,13 @@ for (const input of [elements.sunDeclination, elements.sunRightAscension, elemen
   input.addEventListener("input", syncSunControls);
 }
 elements.exportFormat.addEventListener("change", updateExportHint);
+elements.importPng.addEventListener("change", () => {
+  importPngHeightMap(elements.importPng.files?.[0]).catch((error) => {
+    elements.importPng.setAttribute("aria-invalid", "true");
+    elements.importStatus.setAttribute("role", "alert");
+    elements.importStatus.textContent = `Import failed: ${error.message}`;
+  });
+});
 elements.exportButton.addEventListener("click", () => {
   elements.exportStatus.textContent = "";
   exportCurrentHeightMap().catch((error) => {
