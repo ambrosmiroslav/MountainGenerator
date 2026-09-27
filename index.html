@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101817" />
+    <meta
+      name="description"
+      content="A build-free procedural mountain generator."
+    />
+    <title>Mountain Generator</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./src/main.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Mountain Generator home">
+          <span class="brand-mark" aria-hidden="true">▲</span>
+          <span>Mountain<span class="brand-light">Generator</span></span>
+        </a>
+        <div class="topbar-meta">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Procedural terrain studio</span>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Terrain workspace">
+        <aside class="settings-panel" aria-label="Terrain settings">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Workspace</p>
+              <h1>Terrain settings</h1>
+            </div>
+            <span class="live-pill">LIVE</span>
+          </div>
+
+          <div class="action-row">
+            <button class="button button-primary" id="regenerate" type="button">
+              <span aria-hidden="true">↻</span> Regenerate
+            </button>
+            <button
+              class="button button-icon"
+              id="randomize-seed"
+              type="button"
+              aria-label="Randomize seed and regenerate"
+              title="Randomize seed"
+            >⤨</button>
+          </div>
+
+          <form id="settings-form" novalidate>
+            <fieldset>
+              <legend>Base grid</legend>
+              <div class="field-grid">
+                <label class="field">
+                  <span>Width <small>cells</small></span>
+                  <input id="width" name="width" type="number" min="1" max="12" value="4" required />
+                </label>
+                <label class="field">
+                  <span>Depth <small>cells</small></span>
+                  <input id="depth" name="depth" type="number" min="1" max="10" value="3" required />
+                </label>
+              </div>
+              <p class="field-hint">The base grid starts with one more point than cells in each direction.</p>
+            </fieldset>
+
+            <fieldset>
+              <legend>Surface detail</legend>
+              <label class="field">
+                <span>Spread <output id="spread-output" for="spread">1.0</output></span>
+                <input id="spread" name="spread" type="range" min="0" max="3" step="0.1" value="1" />
+              </label>
+              <label class="field field-spaced">
+                <span>Refinement passes</span>
+                <select id="iterations" name="iterations">
+                  <option value="0">0 — base grid</option>
+                  <option value="1">1 pass</option>
+                  <option value="2">2 passes</option>
+                  <option value="3">3 passes</option>
+                  <option value="4" selected>4 passes</option>
+                </select>
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Appearance</legend>
+              <label class="field">
+                <span>Seed</span>
+                <input id="seed" name="seed" type="number" min="0" max="4294967295" value="18427" required />
+              </label>
+              <label class="field field-spaced">
+                <span>Color mode</span>
+                <select id="color-mode" name="colorMode">
+                  <option value="elevation" selected>Elevation</option>
+                  <option value="monochrome">Monochrome</option>
+                  <option value="slope">Slope</option>
+                  <option value="combined">Combined</option>
+                </select>
+              </label>
+              <label class="toggle-row" for="wireframe">
+                <span>
+                  <strong>Wireframe</strong>
+                  <small>Show the triangle mesh</small>
+                </span>
+                <input id="wireframe" name="wireframe" type="checkbox" />
+                <span class="toggle" aria-hidden="true"></span>
+              </label>
+            </fieldset>
+            <p class="form-message" id="form-message" role="alert" aria-live="polite"></p>
+          </form>
+
+          <div class="panel-footer">
+            <span class="keyboard-hint"><kbd>Drag</kbd> orbit <kbd>Scroll</kbd> zoom</span>
+            <button class="text-button" id="reset-view" type="button">Reset view</button>
+          </div>
+        </aside>
+
+        <section class="viewer" aria-label="3D terrain preview">
+          <div class="viewer-canvas" id="viewer-canvas"></div>
+          <div class="viewer-overlay viewer-title">
+            <span class="eyebrow">Preview</span>
+            <span class="terrain-name">Alpine study <span aria-hidden="true">↗</span></span>
+          </div>
+          <div class="viewer-overlay viewer-stats" aria-live="polite">
+            <span><i class="stat-swatch" aria-hidden="true"></i><span id="point-count">— points</span></span>
+            <span><i class="stat-line" aria-hidden="true"></i><span>Triangular mesh</span></span>
+          </div>
+          <div class="viewer-controls-hint" aria-hidden="true">
+            <span>Left / right drag to orbit</span><span>Scroll to zoom</span>
+          </div>
+          <noscript>
+            <p class="noscript-message">Enable JavaScript to generate and explore terrain.</p>
+          </noscript>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
