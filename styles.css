@@ -183,6 +183,36 @@ h1 {
   background: #bce5b4;
 }
 
+.button-secondary {
+  border-color: #45534b;
+  background: #25312c;
+  color: #d4ded7;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.button-secondary:hover {
+  border-color: #718477;
+  background: #2c3933;
+}
+
+.export-button {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.export-status {
+  min-height: 0;
+  margin: 7px 0 0;
+  color: #a9d5a1;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.export-status:empty {
+  display: none;
+}
+
 .button-primary > span {
   font-size: 17px;
   line-height: 1;

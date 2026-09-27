@@ -10,10 +10,13 @@ A build-free, browser-based procedural terrain playground. Serve this directory 
 - Set spread from 0 to 1.2 in increments of 0.05; the current value is shown to two decimal places.
 - Choose monochrome, elevation, slope, or combined vertex coloring. Drag to orbit and scroll to zoom.
 - Adjust the sun with range sliders for declination (-90° to 90°) and right ascension (0° to 360°), or use their arrow keys for precise one-degree changes. The live angle readouts stay in degrees. Set intensity from 0 to 5 with its slider; the combined readout follows each change and the directional light moves without regenerating the terrain.
+- Use **Export height map** to download the currently generated map as JSON (exact floating-point heights plus dimensions, axes, seed, spread, refinement, and height range) or PNG (editable 8-bit grayscale). JSON and PNG pixels use row-major order: image/array row 0 is `yAxis[0]`, and column 0 is `xAxis[0]`; rows and columns follow increasing axis coordinates without flipping or transposing.
 
 Declination measures the light angle above or below the horizon. Right ascension rotates around the terrain, with 0° along +X and increasing angles toward +Z when viewed from above. At intensity 0, the directional sun is off; ambient and rim lighting remain.
 
 The default 4 × 3-cell grid starts with 5 × 4 points. Every refinement pass splits every interval in both axes, producing 65 × 49 points after four passes. Existing samples are preserved; new edge samples use the average of their endpoints, and new cell-center samples use the average of the four corners. Each receives a seeded, bounded perturbation that decreases with every pass. Each resulting grid cell is covered by two indexed triangles.
+
+PNG values are linearly normalized from the generated map's minimum height (black, 0) to its maximum height (white, 255). The displayed range and PNG filename include these bounds so heights can be approximately reconstructed with `min + pixel / 255 × (max - min)`; use JSON when exact values are needed. A constant-height map is encoded entirely as black with identical minimum and maximum bounds, avoiding division by zero.
 
 ## Limits and compatibility
 

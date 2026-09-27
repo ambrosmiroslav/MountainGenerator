@@ -136,6 +136,21 @@
                 <input id="sun-intensity" name="sunIntensity" type="range" min="0" max="5" step="0.1" value="2.5" />
               </label>
             </fieldset>
+            <fieldset>
+              <legend>Export height map</legend>
+              <label class="field" for="export-format">
+                <span>File format</span>
+                <select id="export-format" name="exportFormat">
+                  <option value="json">JSON — exact heights</option>
+                  <option value="png">PNG — grayscale image</option>
+                </select>
+              </label>
+              <p class="field-hint" id="export-hint" aria-live="polite">JSON stores exact row-major heights and terrain metadata.</p>
+              <button class="button button-secondary export-button" id="export-heightmap" type="button">
+                Download height map
+              </button>
+              <p class="export-status" id="export-status" role="status" aria-live="polite"></p>
+            </fieldset>
             <p class="form-message" id="form-message" role="alert" aria-live="polite"></p>
           </form>
 

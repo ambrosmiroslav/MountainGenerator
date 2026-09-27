@@ -43,6 +43,10 @@ const elements = {
   sunRightAscensionOutput: document.querySelector("#sun-right-ascension-output"),
   sunIntensity: document.querySelector("#sun-intensity"),
   sunIntensityOutput: document.querySelector("#sun-intensity-output"),
+  exportFormat: document.querySelector("#export-format"),
+  exportHint: document.querySelector("#export-hint"),
+  exportButton: document.querySelector("#export-heightmap"),
+  exportStatus: document.querySelector("#export-status"),
   message: document.querySelector("#form-message"),
   pointCount: document.querySelector("#point-count"),
   sunStatus: document.querySelector("#sun-status"),
@@ -96,6 +100,9 @@ let currentSunSettings = {
   sunRightAscension: DEFAULTS.sunRightAscension,
   sunIntensity: DEFAULTS.sunIntensity,
 };
+let currentHeightMap = null;
+let currentTerrainSettings = null;
+const activeDownloadUrls = new Map();
 let animationFrame = 0;
 
 function makeRandom(seed) {
@@ -221,6 +228,179 @@ function createHeightMap(settings) {
   }
 
   return { grid, xAxis, yAxis };
+}
+
+function getHeightRange(heightMap) {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const row of heightMap.grid) {
+    for (const height of row) {
+      min = Math.min(min, height);
+      max = Math.max(max, height);
+    }
+  }
+  return { min, max };
+}
+
+function createHeightMapExport(heightMap, settings) {
+  const range = getHeightRange(heightMap);
+  return {
+    format: "mountain-generator-heightmap",
+    version: 1,
+    dimensions: {
+      columns: heightMap.xAxis.length,
+      rows: heightMap.yAxis.length,
+      widthCells: settings.width,
+      depthCells: settings.depth,
+      refinementPasses: settings.iterations,
+    },
+    axes: {
+      x: heightMap.xAxis,
+      y: heightMap.yAxis,
+      rowOrder: "increasing y; row 0 is yAxis[0]",
+      columnOrder: "increasing x; column 0 is xAxis[0]",
+    },
+    metadata: {
+      seed: settings.seed,
+      spread: settings.spread,
+      colorMode: settings.colorMode,
+      heightRange: range,
+      pngEncoding: {
+        bitDepth: 8,
+        colorType: "grayscale",
+        minimumHeight: range.min,
+        maximumHeight: range.max,
+        normalization: "linear: min maps to 0, max maps to 255",
+        constantHeightPixel: range.min === range.max ? 0 : null,
+      },
+    },
+    heights: heightMap.grid,
+  };
+}
+
+function createGrayscaleScanlines(heightMap, range = getHeightRange(heightMap)) {
+  const rows = heightMap.yAxis.length;
+  const columns = heightMap.xAxis.length;
+  const scanlines = new Uint8Array(rows * (columns + 1));
+  const heightRange = range.max - range.min;
+
+  for (let row = 0; row < rows; row += 1) {
+    const rowOffset = row * (columns + 1);
+    scanlines[rowOffset] = 0;
+    for (let column = 0; column < columns; column += 1) {
+      const normalized = heightRange === 0
+        ? 0
+        : (heightMap.grid[row][column] - range.min) / heightRange;
+      scanlines[rowOffset + column + 1] = Math.round(THREE.MathUtils.clamp(normalized, 0, 1) * 255);
+    }
+  }
+
+  return { columns, rows, range, scanlines };
+}
+
+function createPngChunk(type, data) {
+  const chunk = new Uint8Array(data.length + 12);
+  const view = new DataView(chunk.buffer);
+  view.setUint32(0, data.length);
+  for (let index = 0; index < type.length; index += 1) {
+    chunk[4 + index] = type.charCodeAt(index);
+  }
+  chunk.set(data, 8);
+
+  let crc = 0xffffffff;
+  for (let index = 4; index < 8 + data.length; index += 1) {
+    crc ^= chunk[index];
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+  }
+  view.setUint32(8 + data.length, (crc ^ 0xffffffff) >>> 0);
+  return chunk;
+}
+
+async function createGrayscalePng(heightMap) {
+  const { columns, rows, scanlines } = createGrayscaleScanlines(heightMap);
+  const header = new Uint8Array(13);
+  const headerView = new DataView(header.buffer);
+  headerView.setUint32(0, columns);
+  headerView.setUint32(4, rows);
+  header[8] = 8;
+  header[9] = 0;
+
+  const compressor = new CompressionStream("deflate");
+  const writer = compressor.writable.getWriter();
+  const compressedData = new Response(compressor.readable).arrayBuffer();
+  await writer.write(scanlines);
+  await writer.close();
+
+  return new Blob([
+    Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
+    createPngChunk("IHDR", header),
+    createPngChunk("IDAT", new Uint8Array(await compressedData)),
+    createPngChunk("IEND", new Uint8Array()),
+  ], { type: "image/png" });
+}
+
+function formatFilenameNumber(value) {
+  return value.toString().replace("-", "m").replace(".", "p");
+}
+
+function createHeightMapFilename(heightMap, format) {
+  const columns = heightMap.xAxis.length;
+  const rows = heightMap.yAxis.length;
+  if (format === "json") {
+    return `mountain-heightmap-${columns}x${rows}.json`;
+  }
+
+  const { min, max } = getHeightRange(heightMap);
+  return `mountain-heightmap-${columns}x${rows}-gray8-min_${formatFilenameNumber(min)}-max_${formatFilenameNumber(max)}.png`;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  link.remove();
+
+  const timer = window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+    activeDownloadUrls.delete(timer);
+  }, 1000);
+  activeDownloadUrls.set(timer, url);
+}
+
+async function exportCurrentHeightMap() {
+  if (!currentHeightMap || !currentTerrainSettings) {
+    throw new Error("Generate a terrain before exporting its height map.");
+  }
+
+  const format = elements.exportFormat.value;
+  const filename = createHeightMapFilename(currentHeightMap, format);
+  let blob;
+  if (format === "json") {
+    blob = new Blob(
+      [JSON.stringify(createHeightMapExport(currentHeightMap, currentTerrainSettings), null, 2)],
+      { type: "application/json" },
+    );
+  } else if (format === "png") {
+    blob = await createGrayscalePng(currentHeightMap);
+  } else {
+    throw new Error(`Unsupported height-map export format: ${format}`);
+  }
+
+  downloadBlob(blob, filename);
+  elements.exportStatus.textContent = `Downloaded ${filename}.`;
+}
+
+function updateExportHint() {
+  if (elements.exportFormat.value !== "png" || !currentHeightMap) {
+    elements.exportHint.textContent = "JSON stores exact row-major heights and terrain metadata.";
+    return;
+  }
+  const { min, max } = getHeightRange(currentHeightMap);
+  elements.exportHint.textContent = `PNG 8-bit grayscale: black = ${min}, white = ${max}. Row 0 is yAxis[0].`;
 }
 
 function mixColors(first, second, amount) {
@@ -400,9 +580,12 @@ function renderTerrain(settings) {
   }
   terrainMesh = nextMesh;
   scene.add(terrainMesh);
+  currentHeightMap = heightMap;
+  currentTerrainSettings = { ...settings };
   groundGrid.position.y = Math.min(...heightMap.grid.flat()) - 0.06;
   currentDimensions = { width: settings.width, depth: settings.depth };
   elements.pointCount.textContent = `${heightMap.xAxis.length} × ${heightMap.yAxis.length} points`;
+  updateExportHint();
 }
 
 function regenerate() {
@@ -458,6 +641,13 @@ elements.seed.addEventListener("change", regenerate);
 for (const input of [elements.sunDeclination, elements.sunRightAscension, elements.sunIntensity]) {
   input.addEventListener("input", syncSunControls);
 }
+elements.exportFormat.addEventListener("change", updateExportHint);
+elements.exportButton.addEventListener("click", () => {
+  elements.exportStatus.textContent = "";
+  exportCurrentHeightMap().catch((error) => {
+    elements.exportStatus.textContent = `Export failed: ${error.message}`;
+  });
+});
 
 const resizeObserver = new ResizeObserver(resizeRenderer);
 resizeObserver.observe(elements.canvas);
@@ -466,6 +656,10 @@ window.addEventListener("beforeunload", () => {
   resizeObserver.disconnect();
   controls.dispose();
   if (terrainMesh) terrainMesh.geometry.dispose();
+  for (const [timer, url] of activeDownloadUrls) {
+    window.clearTimeout(timer);
+    URL.revokeObjectURL(url);
+  }
   terrainMaterial.dispose();
   renderer.dispose();
 });
